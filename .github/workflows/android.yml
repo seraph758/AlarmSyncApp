@@ -19,17 +19,70 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 使用官方 Gradle Build Action，指定版本，不依赖本地 wrapper
-      - name: Build with Gradle 8.7
-        uses: gradle/gradle-build-action@v3
-        with:
-          gradle-version: 8.7
-          arguments: build
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
 
-      - name: Upload APKs
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 获取最新 tag 并递增版本号
+      - name: Determine next version
+        id: next_version
+        run: |
+          latest=$(git tag --sort=-creatordate | head -n1)
+          echo "Latest tag: $latest"
+          if [ -z "$latest" ]; then
+            next="v1.0.0"
+          else
+            IFS='.' read -r major minor patch <<<"${latest#v}"
+            patch=$((patch + 1))
+            next="v${major}.${minor}.${patch}"
+          fi
+          echo "Next version: $next"
+          echo "NEXT_VERSION=$next" >> $GITHUB_ENV
+
+          # 自动生成 versionCode （递增数）
+          version_code=$(date +%s)
+          echo "VERSION_CODE=$version_code" >> $GITHUB_ENV
+
+      # 更新 build.gradle 中的 versionCode 和 versionName
+      - name: Update Gradle version
+        run: |
+          sed -i "s/versionCode [0-9]\+/versionCode $VERSION_CODE/" mobile/build.gradle
+          sed -i "s/versionName \".*\"/versionName \"$NEXT_VERSION\"/" mobile/build.gradle
+          sed -i "s/versionCode [0-9]\+/versionCode $VERSION_CODE/" wear/build.gradle
+          sed -i "s/versionName \".*\"/versionName \"$NEXT_VERSION\"/" wear/build.gradle
+
+      # 构建 APK
+      - name: Build with Gradle
+        run: ./gradlew build
+
+      # 上传 APK 作为 artifact
+      - name: Upload APKs as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: APKs
           path: |
             mobile/build/outputs/apk/debug/*.apk
             wear/build/outputs/apk/debug/*.apk
+
+      # 创建 Release
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.NEXT_VERSION }}
+          name: "AlarmSyncApp ${{ env.NEXT_VERSION }}"
+          body: "Automated release from GitHub Actions"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 上传 APK 到 Release
+      - name: Upload APKs to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            mobile/build/outputs/apk/debug/*.apk
+            wear/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
