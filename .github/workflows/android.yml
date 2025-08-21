@@ -13,17 +13,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 设置 JDK
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Gradle
+      # 设置 Gradle（无需仓库 gradlew）
+      - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v3
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+        with:
+          gradle-version: 8.7
 
       # 获取最新 tag 并递增版本号
       - name: Determine next version
@@ -41,11 +42,11 @@ jobs:
           echo "Next version: $next"
           echo "NEXT_VERSION=$next" >> $GITHUB_ENV
 
-          # 自动生成 versionCode （递增数）
+          # 自动生成 versionCode（用秒数保证递增）
           version_code=$(date +%s)
           echo "VERSION_CODE=$version_code" >> $GITHUB_ENV
 
-      # 更新 build.gradle 中的 versionCode 和 versionName
+      # 更新 build.gradle 中 versionCode 和 versionName
       - name: Update Gradle version
         run: |
           sed -i "s/versionCode [0-9]\+/versionCode $VERSION_CODE/" mobile/build.gradle
@@ -54,8 +55,8 @@ jobs:
           sed -i "s/versionName \".*\"/versionName \"$NEXT_VERSION\"/" wear/build.gradle
 
       # 构建 APK
-      - name: Build with Gradle
-        run: ./gradlew build
+      - name: Build APK
+        run: gradle build
 
       # 上传 APK 作为 artifact
       - name: Upload APKs as artifacts
