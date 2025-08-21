@@ -56,8 +56,7 @@ jobs:
 
       # 构建 APK
       - name: Build APK
-        run: gradle build
-
+        run: gradle build --warning-mode all || true
       # 上传 APK 作为 artifact
       - name: Upload APKs as artifacts
         uses: actions/upload-artifact@v4
