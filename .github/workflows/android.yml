@@ -5,8 +5,9 @@ on:
     branches:
       - main
   pull_request:
+
 permissions:
-  contents: write # 确保有写入权限
+  contents: write
 
 jobs:
   build:
@@ -25,44 +26,53 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # 生成版本号和 tag
-      - name: Set version variables
-        id: versioning
-        run: |
-          echo "VERSION_CODE=$(date +%s)" >> $GITHUB_ENV
-
-          # 如果已有 tag，就在最后一位 +1，否则从 v1.0.0 开始
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
-          echo "Latest tag: $LATEST_TAG"
-
-          BASE=${LATEST_TAG%.*}
-          PATCH=${LATEST_TAG##*.}
-          NEXT_VERSION="$BASE.$((PATCH+1))"
-          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
-          echo "NEXT_VERSION=$NEXT_VERSION"
-      
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
       - name: Build Debug APKs
         run: ./gradlew assembleDebug
 
-      # 打 tag 并推送
-      - name: Create Git tag
+      - name: Set version and tag
+        id: versioning
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+          BASE=${LATEST_TAG%.*}
+          PATCH=${LATEST_TAG##*.}
+          NEXT_VERSION="$BASE.$((PATCH+1))"
+          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
+
+      - name: Create and push Git tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag $NEXT_VERSION
-          git push origin $NEXT_VERSION
+          git tag ${{ env.NEXT_VERSION }}
+          git push origin ${{ env.NEXT_VERSION }}
 
-      # 创建 Release 并上传 APK
+---
+
+name: Release CI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-tags: true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ env.NEXT_VERSION }}
-          name: Release ${{ env.NEXT_VERSION }}
           files: |
             mobile/build/outputs/apk/debug/*.apk
             wear/build/outputs/apk/debug/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
