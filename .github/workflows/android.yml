@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
 permissions:
   contents: write # 确保有写入权限
 
@@ -13,76 +13,54 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      # 设置 JDK
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v3
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      # 设置 Gradle（无需仓库 gradlew）
-      - name: Set up Gradle 8.7
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.7
 
-      # 获取最新 tag 并递增版本号
-      - name: Determine next version
-        id: next_version
+      # 生成版本号和 tag
+      - name: Set version variables
+        id: versioning
         run: |
-          latest=$(git tag --sort=-creatordate | head -n1)
-          echo "Latest tag: $latest"
-          if [ -z "$latest" ]; then
-            next="v1.0.0"
-          else
-            IFS='.' read -r major minor patch <<<"${latest#v}"
-            patch=$((patch + 1))
-            next="v${major}.${minor}.${patch}"
-          fi
-          echo "Next version: $next"
-          echo "NEXT_VERSION=$next" >> $GITHUB_ENV
+          echo "VERSION_CODE=$(date +%s)" >> $GITHUB_ENV
 
-          # 自动生成 versionCode（用秒数保证递增）
-          version_code=$(date +%s)
-          echo "VERSION_CODE=$version_code" >> $GITHUB_ENV
+          # 如果已有 tag，就在最后一位 +1，否则从 v1.0.0 开始
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+          echo "Latest tag: $LATEST_TAG"
 
-      # 更新 build.gradle 中 versionCode 和 versionName
-      - name: Update Gradle version
+          BASE=${LATEST_TAG%.*}
+          PATCH=${LATEST_TAG##*.}
+          NEXT_VERSION="$BASE.$((PATCH+1))"
+          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
+          echo "NEXT_VERSION=$NEXT_VERSION"
+      
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build Debug APKs
+        run: ./gradlew assembleDebug
+
+      # 打 tag 并推送
+      - name: Create Git tag
         run: |
-          sed -i "s/versionCode [0-9]\+/versionCode $VERSION_CODE/" mobile/build.gradle
-          sed -i "s/versionName \".*\"/versionName \"$NEXT_VERSION\"/" mobile/build.gradle
-          sed -i "s/versionCode [0-9]\+/versionCode $VERSION_CODE/" wear/build.gradle
-          sed -i "s/versionName \".*\"/versionName \"$NEXT_VERSION\"/" wear/build.gradle
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag $NEXT_VERSION
+          git push origin $NEXT_VERSION
 
-      # 构建 APK
-      - name: Build APK
-        run: gradle build --warning-mode all || true
-      # 上传 APK 作为 artifact
-      - name: Upload APKs as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: APKs
-          path: |
-            mobile/build/outputs/apk/debug/*.apk
-            wear/build/outputs/apk/debug/*.apk
-
-      # 创建 Release
+      # 创建 Release 并上传 APK
       - name: Create GitHub Release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.NEXT_VERSION }}
-          name: "AlarmSyncApp ${{ env.NEXT_VERSION }}"
-          body: "Automated release from GitHub Actions"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 上传 APK 到 Release
-      - name: Upload APKs to Release
-        uses: softprops/action-gh-release@v1
-        with:
+          name: Release ${{ env.NEXT_VERSION }}
           files: |
             mobile/build/outputs/apk/debug/*.apk
             wear/build/outputs/apk/debug/*.apk
